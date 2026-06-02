@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/router/app_router.dart';
+import '../../../data/models/incident_model.dart';
 import '../../../features/incidents/providers/incident_provider.dart';
 import '../providers/map_provider.dart';
 import '../widgets/incident_marker.dart';
@@ -18,6 +19,8 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
+  IncidentType? _selectedType;
+  DangerLevel? _selectedDangerLevel;
 
   @override
   void initState() {
@@ -28,10 +31,43 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  List<IncidentModel> _filteredIncidents(List<IncidentModel> incidents) {
+    return incidents.where((inc) {
+      final typeMatches = _selectedType == null || inc.type == _selectedType;
+      final levelMatches =
+          _selectedDangerLevel == null ||
+          inc.dangerLevel == _selectedDangerLevel;
+      return typeMatches && levelMatches;
+    }).toList();
+  }
+
+  Future<void> _refreshData() async {
+    final mapProvider = context.read<MapProvider>();
+    context.read<IncidentProvider>().listenIncidents();
+    await mapProvider.loadCurrentLocation();
+    if (!mounted) return;
+    if (mapProvider.error.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(mapProvider.error),
+          backgroundColor: AppColors.alertHigh,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mapa e incidencias actualizados'),
+          backgroundColor: AppColors.resolved,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final mapProv = context.watch<MapProvider>();
     final incProv = context.watch<IncidentProvider>();
+    final filteredIncidents = _filteredIncidents(incProv.incidents);
     final center = mapProv.currentPosition != null
         ? LatLng(
             mapProv.currentPosition!.latitude,
@@ -56,7 +92,7 @@ class _MapScreenState extends State<MapScreen> {
                       userAgentPackageName: 'com.example.saferoute',
                     ),
                     MarkerLayer(
-                      markers: incProv.incidents.map((inc) {
+                      markers: filteredIncidents.map((inc) {
                         return Marker(
                           point: LatLng(inc.latitude, inc.longitude),
                           width: 36,
@@ -134,23 +170,43 @@ class _MapScreenState extends State<MapScreen> {
                               ],
                             ),
                           ),
-                          GestureDetector(
-                            onTap: () => Navigator.pushNamed(
-                              context,
-                              AppRouter.profile,
-                            ),
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: AppColors.surface,
-                                borderRadius: BorderRadius.circular(8),
+                          Row(
+                            children: [
+                              GestureDetector(
+                                onTap: _refreshData,
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surface,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.refresh,
+                                    color: AppColors.textSecondary,
+                                    size: 20,
+                                  ),
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.person_outline,
-                                color: AppColors.textSecondary,
-                                size: 20,
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                onTap: () => Navigator.pushNamed(
+                                  context,
+                                  AppRouter.profile,
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surface,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.person_outline,
+                                    color: AppColors.textSecondary,
+                                    size: 20,
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ],
                       ),
@@ -189,7 +245,18 @@ class _MapScreenState extends State<MapScreen> {
               ],
             ),
           ),
-          IncidentBottomSheet(incidents: incProv.incidents),
+          IncidentBottomSheet(
+            incidents: filteredIncidents,
+            selectedType: _selectedType,
+            selectedDangerLevel: _selectedDangerLevel,
+            onTypeChanged: (type) {
+              setState(() => _selectedType = type);
+            },
+            onDangerLevelChanged: (level) {
+              setState(() => _selectedDangerLevel = level);
+            },
+            onRefresh: _refreshData,
+          ),
         ],
       ),
     );
